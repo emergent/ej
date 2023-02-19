@@ -4,6 +4,7 @@
 description = "Watch files and recompile the project on change"
 run_task = [
     { name = ["test", "clippy"] },
+    #{ name = ["clippy", "test"] },
 ]
 watch = true
 
