@@ -77,7 +77,7 @@ impl<'a> Parser<'a> {
             '-' | '0'..='9' => self.parse_number()?,
             't' | 'f' => self.parse_bool()?,
             'n' => self.parse_null()?,
-            _ => return Err(ParseError::Syntax),
+            _ => return Err(ParseError::syntax(self.index)),
         };
 
         Ok(value)
@@ -89,7 +89,7 @@ impl<'a> Parser<'a> {
             self.index += LEN_NULL;
             return Ok(Value::Null);
         }
-        Err(ParseError::Syntax)
+        Err(ParseError::syntax(self.index))
     }
 
     fn parse_bool(&mut self) -> Result<Value, ParseError> {
@@ -101,7 +101,7 @@ impl<'a> Parser<'a> {
             self.index += LEN_FALSE;
             return Ok(Value::Bool(false));
         }
-        Err(ParseError::Syntax)
+        Err(ParseError::syntax(self.index))
     }
 
     fn parse_number(&mut self) -> Result<Value, ParseError> {
@@ -124,7 +124,7 @@ impl<'a> Parser<'a> {
             self.index += cursor;
             return Ok(Value::Number(Number::Float(f)));
         }
-        Err(ParseError::Syntax)
+        Err(ParseError::number(self.index))
     }
 
     fn parse_string(&mut self) -> Result<Value, ParseError> {
@@ -142,7 +142,7 @@ impl<'a> Parser<'a> {
         }
 
         if !closed {
-            return Err(ParseError::Syntax);
+            return Err(ParseError::syntax(self.index));
         }
 
         let s = self.bytes[self.index..self.index + cursor]
@@ -181,7 +181,7 @@ impl<'a> Parser<'a> {
                     self.index += 1;
                     self.skip_whitespace_err()?;
                 }
-                _ => return Err(ParseError::Syntax),
+                _ => return Err(ParseError::syntax(self.index)),
             }
         }
 
@@ -202,13 +202,13 @@ impl<'a> Parser<'a> {
 
         while self.index < self.bytes.len() {
             let Value::String(key) = self.parse_string()? else {
-                return Err(ParseError::Syntax);
+                return Err(ParseError::syntax(self.index));
             };
 
             self.skip_whitespace_err()?;
 
             if self.bytes[self.index] != b':' {
-                return Err(ParseError::Syntax);
+                return Err(ParseError::syntax(self.index));
             }
             self.index += 1;
 
@@ -229,7 +229,7 @@ impl<'a> Parser<'a> {
                     self.index += 1;
                     self.skip_whitespace_err()?;
                 }
-                _ => return Err(ParseError::Syntax),
+                _ => return Err(ParseError::syntax(self.index)),
             }
         }
 
@@ -253,7 +253,7 @@ impl<'a> Parser<'a> {
     fn skip_whitespace_err(&mut self) -> Result<(), ParseError> {
         self.skip_whitespace();
         if self.index >= self.bytes.len() {
-            return Err(ParseError::Syntax);
+            return Err(ParseError::syntax(self.index));
         }
         Ok(())
     }

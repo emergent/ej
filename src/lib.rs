@@ -4,18 +4,41 @@ use parser::Json;
 use std::{error::Error, fmt};
 
 #[derive(Debug)]
-pub enum ParseError {
+pub struct ParseError {
+    pos: usize,
+    kind: ParseErrorKind,
+}
+
+#[derive(Debug)]
+pub enum ParseErrorKind {
     Lex,
     Syntax,
+    Number,
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "position: {}, reason: {:?}", self.pos, self.kind)
     }
 }
 
 impl Error for ParseError {}
+
+impl ParseError {
+    pub fn syntax(pos: usize) -> Self {
+        Self {
+            pos,
+            kind: ParseErrorKind::Syntax,
+        }
+    }
+
+    pub fn number(pos: usize) -> Self {
+        Self {
+            pos,
+            kind: ParseErrorKind::Number,
+        }
+    }
+}
 
 pub fn from_json_str(json_str: &str) -> Result<Json, ParseError> {
     let res = parser::parse_str(json_str)?;
