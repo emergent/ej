@@ -55,8 +55,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse(mut self) -> Result<Json, ParseError> {
         while self.pos < self.bytes.len() {
-            self.skip_whitespace();
-            if self.pos >= self.bytes.len() {
+            if self.skip_whitespace().is_err() {
                 break;
             }
 
@@ -68,7 +67,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_bytes(&mut self) -> Result<Value, ParseError> {
-        self.skip_whitespace_err()?;
+        self.skip_whitespace()?;
 
         let value = match self.bytes[self.pos] as char {
             '{' => self.parse_object()?,
@@ -159,7 +158,7 @@ impl<'a> Parser<'a> {
 
         let mut array = vec![];
 
-        self.skip_whitespace_err()?;
+        self.skip_whitespace()?;
 
         if self.bytes[self.pos] == b']' {
             self.pos += 1; // skip closing ']'
@@ -170,7 +169,7 @@ impl<'a> Parser<'a> {
             let val = self.parse_bytes()?;
             array.push(val);
 
-            self.skip_whitespace_err()?;
+            self.skip_whitespace()?;
 
             match self.bytes[self.pos] {
                 b']' => {
@@ -179,7 +178,7 @@ impl<'a> Parser<'a> {
                 }
                 b',' => {
                     self.pos += 1;
-                    self.skip_whitespace_err()?;
+                    self.skip_whitespace()?;
                 }
                 _ => return Err(ParseError::syntax(self.pos)),
             }
@@ -193,7 +192,7 @@ impl<'a> Parser<'a> {
 
         let mut hm = HashMap::new();
 
-        self.skip_whitespace_err()?;
+        self.skip_whitespace()?;
 
         if self.bytes[self.pos] == b'}' {
             self.pos += 1; // skip closing ']'
@@ -205,20 +204,20 @@ impl<'a> Parser<'a> {
                 return Err(ParseError::syntax(self.pos));
             };
 
-            self.skip_whitespace_err()?;
+            self.skip_whitespace()?;
 
             if self.bytes[self.pos] != b':' {
                 return Err(ParseError::syntax(self.pos));
             }
             self.pos += 1;
 
-            self.skip_whitespace_err()?;
+            self.skip_whitespace()?;
 
             let val = self.parse_bytes()?;
 
             hm.insert(key, val);
 
-            self.skip_whitespace_err()?;
+            self.skip_whitespace()?;
 
             match self.bytes[self.pos] {
                 b'}' => {
@@ -227,7 +226,7 @@ impl<'a> Parser<'a> {
                 }
                 b',' => {
                     self.pos += 1;
-                    self.skip_whitespace_err()?;
+                    self.skip_whitespace()?;
                 }
                 _ => return Err(ParseError::syntax(self.pos)),
             }
@@ -240,22 +239,16 @@ impl<'a> Parser<'a> {
         self.number_chars.contains(c)
     }
 
-    fn skip_whitespace(&mut self) {
+    fn skip_whitespace(&mut self) -> Result<(), ParseError> {
         while self.pos < self.bytes.len() {
             if self.whitespace.contains(&self.bytes[self.pos]) {
                 self.pos += 1;
             } else {
-                break;
+                return Ok(());
             }
         }
-    }
 
-    fn skip_whitespace_err(&mut self) -> Result<(), ParseError> {
-        self.skip_whitespace();
-        if self.pos >= self.bytes.len() {
-            return Err(ParseError::syntax(self.pos));
-        }
-        Ok(())
+        Err(ParseError::syntax(self.pos))
     }
 }
 
@@ -308,6 +301,7 @@ mod tests {
           "c" : { "hoge": "aha" } } ] "#);
 
         p(r#"[{}] {} {} {}"#);
+        p(r#"[1,2,3] {"a":"b"} {"a":{"b":{"c":"d"}}} {}"#);
     }
 
     fn e(s: &str) {
