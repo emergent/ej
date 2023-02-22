@@ -165,7 +165,7 @@ impl<'a> Parser<'a> {
             return Ok(Value::Array(array));
         }
 
-        while self.pos < self.bytes.len() {
+        loop {
             let val = self.parse_bytes()?;
             array.push(val);
 
@@ -174,7 +174,7 @@ impl<'a> Parser<'a> {
             match self.bytes[self.pos] {
                 b']' => {
                     self.pos += 1;
-                    return Ok(Value::Array(array));
+                    break;
                 }
                 b',' => {
                     self.pos += 1;
@@ -184,7 +184,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(Value::Null)
+        Ok(Value::Array(array))
     }
 
     fn parse_object(&mut self) -> Result<Value, ParseError> {
@@ -199,7 +199,7 @@ impl<'a> Parser<'a> {
             return Ok(Value::Object(hm));
         }
 
-        while self.pos < self.bytes.len() {
+        loop {
             let Value::String(key) = self.parse_string()? else {
                 return Err(ParseError::syntax(self.pos));
             };
@@ -313,8 +313,20 @@ mod tests {
     fn test_ng() {
         e(r#","#);
         e(r#":"#);
+
+        // array
         e(r#"["#);
         e(r#"[,]"#);
         e(r#"[:]]"#);
+        e(r#"[1,"2",]"#);
+        e(r#"[1,"2","#);
+        e(r#"[1,"2",3 "#);
+
+        // object loop
+        e(r#"{"a": 1"#);
+        e(r#"{"a": 1 ,"#);
+        e(r#"{"a": 1 ,}"#);
+        e(r#"{"a": 1, "b": , }"#);
+        e(r#"{"a": 1, "b": 2"#);
     }
 }
