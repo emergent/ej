@@ -35,7 +35,7 @@ pub fn parse_str(s: &str) -> Result<Json, ParseError> {
 
 #[derive(Debug, Clone)]
 pub struct Parser<'a> {
-    index: usize,
+    pos: usize,
     bytes: &'a [u8],
     values: Vec<Value>,
     number_chars: HashSet<u8>,
@@ -45,7 +45,7 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     pub fn new(b: &'a [u8]) -> Self {
         Self {
-            index: 0,
+            pos: 0,
             bytes: b,
             values: vec![],
             number_chars: JSON_NUMBER_CHARS.chars().map(|x| x as u8).collect(),
@@ -54,9 +54,9 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(mut self) -> Result<Json, ParseError> {
-        while self.index < self.bytes.len() {
+        while self.pos < self.bytes.len() {
             self.skip_whitespace();
-            if self.index >= self.bytes.len() {
+            if self.pos >= self.bytes.len() {
                 break;
             }
 
@@ -70,70 +70,70 @@ impl<'a> Parser<'a> {
     fn parse_bytes(&mut self) -> Result<Value, ParseError> {
         self.skip_whitespace_err()?;
 
-        let value = match self.bytes[self.index] as char {
+        let value = match self.bytes[self.pos] as char {
             '{' => self.parse_object()?,
             '[' => self.parse_array()?,
             '"' => self.parse_string()?,
             '-' | '0'..='9' => self.parse_number()?,
             't' | 'f' => self.parse_bool()?,
             'n' => self.parse_null()?,
-            _ => return Err(ParseError::syntax(self.index)),
+            _ => return Err(ParseError::syntax(self.pos)),
         };
 
         Ok(value)
     }
 
     fn parse_null(&mut self) -> Result<Value, ParseError> {
-        let i = self.index;
+        let i = self.pos;
         if self.bytes[i..i + LEN_NULL] == [b'n', b'u', b'l', b'l'] {
-            self.index += LEN_NULL;
+            self.pos += LEN_NULL;
             return Ok(Value::Null);
         }
-        Err(ParseError::syntax(self.index))
+        Err(ParseError::syntax(self.pos))
     }
 
     fn parse_bool(&mut self) -> Result<Value, ParseError> {
-        let i = self.index;
+        let i = self.pos;
         if self.bytes[i..i + LEN_TRUE] == [b't', b'r', b'u', b'e'] {
-            self.index += LEN_TRUE;
+            self.pos += LEN_TRUE;
             return Ok(Value::Bool(true));
         } else if self.bytes[i..i + LEN_FALSE] == [b'f', b'a', b'l', b's', b'e'] {
-            self.index += LEN_FALSE;
+            self.pos += LEN_FALSE;
             return Ok(Value::Bool(false));
         }
-        Err(ParseError::syntax(self.index))
+        Err(ParseError::syntax(self.pos))
     }
 
     fn parse_number(&mut self) -> Result<Value, ParseError> {
         let mut cursor = 0;
-        while self.index + cursor < self.bytes.len()
-            && self.match_number_token(&self.bytes[self.index + cursor])
+        while self.pos + cursor < self.bytes.len()
+            && self.match_number_token(&self.bytes[self.pos + cursor])
         {
             cursor += 1;
         }
 
-        let num_slice = self.bytes[self.index..self.index + cursor]
+        let num_slice = self.bytes[self.pos..self.pos + cursor]
             .iter()
             .map(|x| *x as char)
             .collect::<String>();
 
         if let Ok(i) = num_slice.parse::<i64>() {
-            self.index += cursor;
+            self.pos += cursor;
             return Ok(Value::Number(Number::Integer(i)));
         } else if let Ok(f) = num_slice.parse::<f64>() {
-            self.index += cursor;
+            self.pos += cursor;
             return Ok(Value::Number(Number::Float(f)));
         }
-        Err(ParseError::number(self.index))
+        Err(ParseError::number(self.pos))
     }
 
     fn parse_string(&mut self) -> Result<Value, ParseError> {
         let mut closed = false;
-        self.index += 1; // skip first '"'
+        self.pos += 1; // skip first '"'
 
         let mut cursor = 0;
-        while self.index + cursor < self.bytes.len() {
-            if self.bytes[self.index + cursor] == JSON_QUOTE {
+        while self.pos + cursor < self.bytes.len() {
+            if self.bytes[self.pos + cursor] == JSON_QUOTE {
                 // FIXME: when escaped
                 closed = true;
                 break;
@@ -142,46 +142,46 @@ impl<'a> Parser<'a> {
         }
 
         if !closed {
-            return Err(ParseError::syntax(self.index));
+            return Err(ParseError::syntax(self.pos));
         }
 
-        let s = self.bytes[self.index..self.index + cursor]
+        let s = self.bytes[self.pos..self.pos + cursor]
             .iter()
             .map(|x| *x as char)
             .collect::<String>();
-        self.index += cursor + 1; //skip closing '"'
+        self.pos += cursor + 1; //skip closing '"'
 
         Ok(Value::String(s))
     }
 
     fn parse_array(&mut self) -> Result<Value, ParseError> {
-        self.index += 1; // skip first '['
+        self.pos += 1; // skip first '['
 
         let mut array = vec![];
 
         self.skip_whitespace_err()?;
 
-        if self.bytes[self.index] == b']' {
-            self.index += 1; // skip closing ']'
+        if self.bytes[self.pos] == b']' {
+            self.pos += 1; // skip closing ']'
             return Ok(Value::Array(array));
         }
 
-        while self.index < self.bytes.len() {
+        while self.pos < self.bytes.len() {
             let val = self.parse_bytes()?;
             array.push(val);
 
             self.skip_whitespace_err()?;
 
-            match self.bytes[self.index] {
+            match self.bytes[self.pos] {
                 b']' => {
-                    self.index += 1;
+                    self.pos += 1;
                     return Ok(Value::Array(array));
                 }
                 b',' => {
-                    self.index += 1;
+                    self.pos += 1;
                     self.skip_whitespace_err()?;
                 }
-                _ => return Err(ParseError::syntax(self.index)),
+                _ => return Err(ParseError::syntax(self.pos)),
             }
         }
 
@@ -189,28 +189,28 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_object(&mut self) -> Result<Value, ParseError> {
-        self.index += 1; // skip first '{'
+        self.pos += 1; // skip first '{'
 
         let mut hm = HashMap::new();
 
         self.skip_whitespace_err()?;
 
-        if self.bytes[self.index] == b'}' {
-            self.index += 1; // skip closing ']'
+        if self.bytes[self.pos] == b'}' {
+            self.pos += 1; // skip closing ']'
             return Ok(Value::Object(hm));
         }
 
-        while self.index < self.bytes.len() {
+        while self.pos < self.bytes.len() {
             let Value::String(key) = self.parse_string()? else {
-                return Err(ParseError::syntax(self.index));
+                return Err(ParseError::syntax(self.pos));
             };
 
             self.skip_whitespace_err()?;
 
-            if self.bytes[self.index] != b':' {
-                return Err(ParseError::syntax(self.index));
+            if self.bytes[self.pos] != b':' {
+                return Err(ParseError::syntax(self.pos));
             }
-            self.index += 1;
+            self.pos += 1;
 
             self.skip_whitespace_err()?;
 
@@ -220,16 +220,16 @@ impl<'a> Parser<'a> {
 
             self.skip_whitespace_err()?;
 
-            match self.bytes[self.index] {
+            match self.bytes[self.pos] {
                 b'}' => {
-                    self.index += 1;
+                    self.pos += 1;
                     break;
                 }
                 b',' => {
-                    self.index += 1;
+                    self.pos += 1;
                     self.skip_whitespace_err()?;
                 }
-                _ => return Err(ParseError::syntax(self.index)),
+                _ => return Err(ParseError::syntax(self.pos)),
             }
         }
 
@@ -241,9 +241,9 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_whitespace(&mut self) {
-        while self.index < self.bytes.len() {
-            if self.whitespace.contains(&self.bytes[self.index]) {
-                self.index += 1;
+        while self.pos < self.bytes.len() {
+            if self.whitespace.contains(&self.bytes[self.pos]) {
+                self.pos += 1;
             } else {
                 break;
             }
@@ -252,8 +252,8 @@ impl<'a> Parser<'a> {
 
     fn skip_whitespace_err(&mut self) -> Result<(), ParseError> {
         self.skip_whitespace();
-        if self.index >= self.bytes.len() {
-            return Err(ParseError::syntax(self.index));
+        if self.pos >= self.bytes.len() {
+            return Err(ParseError::syntax(self.pos));
         }
         Ok(())
     }
