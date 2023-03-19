@@ -1,12 +1,11 @@
 mod parser;
+mod value;
 
-use parser::ValueKind;
-
-use self::parser::Value;
+use self::value::{JsonValue, ValueKind};
 use std::{error::Error, fmt};
 
 #[derive(Debug)]
-pub struct Json(Vec<Value>);
+pub struct Json(Vec<JsonValue>);
 
 impl Json {
     pub fn dump(&self) {
@@ -15,7 +14,7 @@ impl Json {
         }
     }
 
-    fn dump_inner(key: Option<&str>, value: &Value, level: usize) {
+    fn dump_inner(key: Option<&str>, value: &JsonValue, level: usize) {
         for _ in 0..level {
             print!("  ");
         }
@@ -43,13 +42,13 @@ impl Json {
         }
     }
 
-    fn format_value(value: &Value) -> String {
+    fn format_value(value: &JsonValue) -> String {
         match value.kind() {
             ValueKind::Bool(b) => b.to_string(),
             ValueKind::Null => "null".into(),
             ValueKind::Object(_) => "Object".into(),
             ValueKind::Array(_) => "Array".into(),
-            ValueKind::String(s) => s.to_owned(),
+            ValueKind::String(s) => s.to_string(),
             ValueKind::Number(n) => n.to_string(),
         }
     }

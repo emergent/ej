@@ -1,3 +1,4 @@
+use crate::value::*;
 use crate::{Json, ParseError};
 use std::collections::{HashMap, HashSet};
 
@@ -7,96 +8,6 @@ const JSON_WHITESPACE_CHARS: &str = " \n\r\t";
 const LEN_TRUE: usize = 4;
 const LEN_FALSE: usize = 5;
 const LEN_NULL: usize = 4;
-
-#[derive(Debug)]
-pub struct Location(usize, usize);
-
-impl Location {
-    pub fn start(&self) -> usize {
-        self.0
-    }
-
-    pub fn end(&self) -> usize {
-        self.1
-    }
-}
-
-#[derive(Debug)]
-pub struct Annotation<T> {
-    value: T,
-    loc: Location,
-}
-
-impl<T> Annotation<T> {
-    pub fn new(value: T, loc: Location) -> Self {
-        Self { value, loc }
-    }
-
-    pub fn loc(&self) -> &Location {
-        &self.loc
-    }
-}
-
-pub type Value = Annotation<ValueKind>;
-
-impl Value {
-    pub fn kind(&self) -> &ValueKind {
-        &self.value
-    }
-
-    fn null(loc: Location) -> Value {
-        Self::new(ValueKind::Null, loc)
-    }
-
-    fn bool(value: bool, loc: Location) -> Value {
-        Self::new(ValueKind::Bool(value), loc)
-    }
-
-    fn number_int(value: i64, loc: Location) -> Value {
-        Self::new(ValueKind::Number(Number::Integer(value)), loc)
-    }
-
-    fn number_float(value: f64, loc: Location) -> Value {
-        Self::new(ValueKind::Number(Number::Float(value)), loc)
-    }
-
-    fn string(value: String, loc: Location) -> Value {
-        Self::new(ValueKind::String(value), loc)
-    }
-
-    fn array(value: Vec<Value>, loc: Location) -> Value {
-        Self::new(ValueKind::Array(value), loc)
-    }
-
-    fn object(value: HashMap<String, Value>, loc: Location) -> Value {
-        Self::new(ValueKind::Object(value), loc)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Number {
-    Integer(i64),
-    Float(f64),
-}
-
-impl ToString for Number {
-    fn to_string(&self) -> String {
-        match self {
-            Number::Integer(i) => i.to_string(),
-            Number::Float(f) => f.to_string(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum ValueKind {
-    Object(HashMap<String, Value>),
-    Array(Vec<Value>),
-    String(String),
-    Number(Number),
-    Bool(bool),
-    Null,
-}
 
 pub fn parse_str(s: &str) -> Result<Json, ParseError> {
     let b = s.as_bytes();
@@ -108,7 +19,7 @@ pub fn parse_str(s: &str) -> Result<Json, ParseError> {
 pub struct Parser<'a> {
     pos: usize,
     bytes: &'a [u8],
-    values: Vec<Value>,
+    values: Vec<JsonValue>,
     number_chars: HashSet<u8>,
     whitespace: HashSet<u8>,
 }
@@ -137,7 +48,7 @@ impl<'a> Parser<'a> {
         Ok(Json(self.values))
     }
 
-    fn parse_bytes(&mut self) -> Result<Value, ParseError> {
+    fn parse_bytes(&mut self) -> Result<JsonValue, ParseError> {
         self.skip_whitespace()?;
 
         let value = match self.bytes[self.pos] {
@@ -153,28 +64,28 @@ impl<'a> Parser<'a> {
         Ok(value)
     }
 
-    fn parse_null(&mut self) -> Result<Value, ParseError> {
+    fn parse_null(&mut self) -> Result<JsonValue, ParseError> {
         let i = self.pos;
         if self.bytes[i..i + LEN_NULL] == [b'n', b'u', b'l', b'l'] {
             self.pos += LEN_NULL;
-            return Ok(Value::null(Location(i, i + LEN_NULL)));
+            return Ok(JsonValue::null(Location(i, i + LEN_NULL)));
         }
         Err(ParseError::syntax(self.pos))
     }
 
-    fn parse_bool(&mut self) -> Result<Value, ParseError> {
+    fn parse_bool(&mut self) -> Result<JsonValue, ParseError> {
         let i = self.pos;
         if self.bytes[i..i + LEN_TRUE] == [b't', b'r', b'u', b'e'] {
             self.pos += LEN_TRUE;
-            return Ok(Value::bool(true, Location(i, i + LEN_TRUE)));
+            return Ok(JsonValue::bool(true, Location(i, i + LEN_TRUE)));
         } else if self.bytes[i..i + LEN_FALSE] == [b'f', b'a', b'l', b's', b'e'] {
             self.pos += LEN_FALSE;
-            return Ok(Value::bool(false, Location(i, i + LEN_FALSE)));
+            return Ok(JsonValue::bool(false, Location(i, i + LEN_FALSE)));
         }
         Err(ParseError::syntax(self.pos))
     }
 
-    fn parse_number(&mut self) -> Result<Value, ParseError> {
+    fn parse_number(&mut self) -> Result<JsonValue, ParseError> {
         let mut cursor = 0;
         while self.pos + cursor < self.bytes.len()
             && self.match_number_token(&self.bytes[self.pos + cursor])
@@ -190,15 +101,15 @@ impl<'a> Parser<'a> {
         let loc = Location(self.pos, self.pos + cursor);
         if let Ok(i) = num_slice.parse::<i64>() {
             self.pos += cursor;
-            return Ok(Value::number_int(i, loc));
+            return Ok(JsonValue::number_int(i, loc));
         } else if let Ok(f) = num_slice.parse::<f64>() {
             self.pos += cursor;
-            return Ok(Value::number_float(f, loc));
+            return Ok(JsonValue::number_float(f, loc));
         }
         Err(ParseError::number(self.pos))
     }
 
-    fn parse_string(&mut self) -> Result<Value, ParseError> {
+    fn parse_string(&mut self) -> Result<JsonValue, ParseError> {
         let start_pos = self.pos;
         let mut closed = false;
         self.pos += 1; // skip first '"'
@@ -223,10 +134,10 @@ impl<'a> Parser<'a> {
             .collect::<String>();
         self.pos += cursor + 1; //skip closing '"'
 
-        Ok(Value::string(s, Location(start_pos, self.pos)))
+        Ok(JsonValue::string(s, Location(start_pos, self.pos)))
     }
 
-    fn parse_array(&mut self) -> Result<Value, ParseError> {
+    fn parse_array(&mut self) -> Result<JsonValue, ParseError> {
         let start_pos = self.pos;
         self.pos += 1; // skip first '['
 
@@ -236,7 +147,7 @@ impl<'a> Parser<'a> {
 
         if self.bytes[self.pos] == b']' {
             self.pos += 1; // skip closing ']'
-            return Ok(Value::array(array, Location(start_pos, self.pos)));
+            return Ok(JsonValue::array(array, Location(start_pos, self.pos)));
         }
 
         loop {
@@ -258,10 +169,10 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(Value::array(array, Location(start_pos, self.pos)))
+        Ok(JsonValue::array(array, Location(start_pos, self.pos)))
     }
 
-    fn parse_object(&mut self) -> Result<Value, ParseError> {
+    fn parse_object(&mut self) -> Result<JsonValue, ParseError> {
         let start_pos = self.pos;
         self.pos += 1; // skip first '{'
 
@@ -271,12 +182,13 @@ impl<'a> Parser<'a> {
 
         if self.bytes[self.pos] == b'}' {
             self.pos += 1; // skip closing ']'
-            return Ok(Value::object(hm, Location(start_pos, self.pos)));
+            return Ok(JsonValue::object(hm, Location(start_pos, self.pos)));
         }
 
         loop {
-            let Value { value: ValueKind::String(key),..} = self.parse_string()? else {
-                return Err(ParseError::syntax(self.pos));
+            let key = match self.parse_string()?.into_kind() {
+                ValueKind::String(key) => key,
+                _ => return Err(ParseError::syntax(self.pos)),
             };
 
             self.skip_whitespace()?;
@@ -307,7 +219,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(Value::object(hm, Location(start_pos, self.pos)))
+        Ok(JsonValue::object(hm, Location(start_pos, self.pos)))
     }
 
     fn match_number_token(&self, c: &u8) -> bool {
