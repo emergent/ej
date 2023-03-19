@@ -23,7 +23,7 @@ fn main() -> Result<(), MyError> {
 
     let json_string = std::fs::read_to_string(filename).map_err(|_| MyError::FileNotFound)?;
     match ej::from_json_str(&json_string) {
-        Ok(res) => println!("{:#?}", res),
+        Ok(res) => res.dump(),
         Err(e) => eprintln!("{}", e),
     }
 

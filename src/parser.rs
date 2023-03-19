@@ -1,4 +1,4 @@
-use crate::ParseError;
+use crate::{Json, ParseError};
 use std::collections::{HashMap, HashSet};
 
 const JSON_QUOTE: u8 = b'"';
@@ -9,7 +9,69 @@ const LEN_FALSE: usize = 5;
 const LEN_NULL: usize = 4;
 
 #[derive(Debug)]
-pub struct Json(Vec<Value>);
+pub struct Location(usize, usize);
+
+impl Location {
+    pub fn start(&self) -> usize {
+        self.0
+    }
+
+    pub fn end(&self) -> usize {
+        self.1
+    }
+}
+
+#[derive(Debug)]
+pub struct Annotation<T> {
+    value: T,
+    loc: Location,
+}
+
+impl<T> Annotation<T> {
+    pub fn new(value: T, loc: Location) -> Self {
+        Self { value, loc }
+    }
+
+    pub fn loc(&self) -> &Location {
+        &self.loc
+    }
+}
+
+pub type Value = Annotation<ValueKind>;
+
+impl Value {
+    pub fn kind(&self) -> &ValueKind {
+        &self.value
+    }
+
+    fn null(loc: Location) -> Value {
+        Self::new(ValueKind::Null, loc)
+    }
+
+    fn bool(value: bool, loc: Location) -> Value {
+        Self::new(ValueKind::Bool(value), loc)
+    }
+
+    fn number_int(value: i64, loc: Location) -> Value {
+        Self::new(ValueKind::Number(Number::Integer(value)), loc)
+    }
+
+    fn number_float(value: f64, loc: Location) -> Value {
+        Self::new(ValueKind::Number(Number::Float(value)), loc)
+    }
+
+    fn string(value: String, loc: Location) -> Value {
+        Self::new(ValueKind::String(value), loc)
+    }
+
+    fn array(value: Vec<Value>, loc: Location) -> Value {
+        Self::new(ValueKind::Array(value), loc)
+    }
+
+    fn object(value: HashMap<String, Value>, loc: Location) -> Value {
+        Self::new(ValueKind::Object(value), loc)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Number {
@@ -17,8 +79,17 @@ pub enum Number {
     Float(f64),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Value {
+impl ToString for Number {
+    fn to_string(&self) -> String {
+        match self {
+            Number::Integer(i) => i.to_string(),
+            Number::Float(f) => f.to_string(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ValueKind {
     Object(HashMap<String, Value>),
     Array(Vec<Value>),
     String(String),
@@ -33,7 +104,7 @@ pub fn parse_str(s: &str) -> Result<Json, ParseError> {
     parser.parse()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Parser<'a> {
     pos: usize,
     bytes: &'a [u8],
@@ -69,13 +140,13 @@ impl<'a> Parser<'a> {
     fn parse_bytes(&mut self) -> Result<Value, ParseError> {
         self.skip_whitespace()?;
 
-        let value = match self.bytes[self.pos] as char {
-            '{' => self.parse_object()?,
-            '[' => self.parse_array()?,
-            '"' => self.parse_string()?,
-            '-' | '0'..='9' => self.parse_number()?,
-            't' | 'f' => self.parse_bool()?,
-            'n' => self.parse_null()?,
+        let value = match self.bytes[self.pos] {
+            b'{' => self.parse_object()?,
+            b'[' => self.parse_array()?,
+            b'"' => self.parse_string()?,
+            b'-' | b'0'..=b'9' => self.parse_number()?,
+            b't' | b'f' => self.parse_bool()?,
+            b'n' => self.parse_null()?,
             _ => return Err(ParseError::syntax(self.pos)),
         };
 
@@ -86,7 +157,7 @@ impl<'a> Parser<'a> {
         let i = self.pos;
         if self.bytes[i..i + LEN_NULL] == [b'n', b'u', b'l', b'l'] {
             self.pos += LEN_NULL;
-            return Ok(Value::Null);
+            return Ok(Value::null(Location(i, i + LEN_NULL)));
         }
         Err(ParseError::syntax(self.pos))
     }
@@ -95,10 +166,10 @@ impl<'a> Parser<'a> {
         let i = self.pos;
         if self.bytes[i..i + LEN_TRUE] == [b't', b'r', b'u', b'e'] {
             self.pos += LEN_TRUE;
-            return Ok(Value::Bool(true));
+            return Ok(Value::bool(true, Location(i, i + LEN_TRUE)));
         } else if self.bytes[i..i + LEN_FALSE] == [b'f', b'a', b'l', b's', b'e'] {
             self.pos += LEN_FALSE;
-            return Ok(Value::Bool(false));
+            return Ok(Value::bool(false, Location(i, i + LEN_FALSE)));
         }
         Err(ParseError::syntax(self.pos))
     }
@@ -116,17 +187,19 @@ impl<'a> Parser<'a> {
             .map(|x| *x as char)
             .collect::<String>();
 
+        let loc = Location(self.pos, self.pos + cursor);
         if let Ok(i) = num_slice.parse::<i64>() {
             self.pos += cursor;
-            return Ok(Value::Number(Number::Integer(i)));
+            return Ok(Value::number_int(i, loc));
         } else if let Ok(f) = num_slice.parse::<f64>() {
             self.pos += cursor;
-            return Ok(Value::Number(Number::Float(f)));
+            return Ok(Value::number_float(f, loc));
         }
         Err(ParseError::number(self.pos))
     }
 
     fn parse_string(&mut self) -> Result<Value, ParseError> {
+        let start_pos = self.pos;
         let mut closed = false;
         self.pos += 1; // skip first '"'
 
@@ -150,10 +223,11 @@ impl<'a> Parser<'a> {
             .collect::<String>();
         self.pos += cursor + 1; //skip closing '"'
 
-        Ok(Value::String(s))
+        Ok(Value::string(s, Location(start_pos, self.pos)))
     }
 
     fn parse_array(&mut self) -> Result<Value, ParseError> {
+        let start_pos = self.pos;
         self.pos += 1; // skip first '['
 
         let mut array = vec![];
@@ -162,7 +236,7 @@ impl<'a> Parser<'a> {
 
         if self.bytes[self.pos] == b']' {
             self.pos += 1; // skip closing ']'
-            return Ok(Value::Array(array));
+            return Ok(Value::array(array, Location(start_pos, self.pos)));
         }
 
         loop {
@@ -184,10 +258,11 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(Value::Array(array))
+        Ok(Value::array(array, Location(start_pos, self.pos)))
     }
 
     fn parse_object(&mut self) -> Result<Value, ParseError> {
+        let start_pos = self.pos;
         self.pos += 1; // skip first '{'
 
         let mut hm = HashMap::new();
@@ -196,11 +271,11 @@ impl<'a> Parser<'a> {
 
         if self.bytes[self.pos] == b'}' {
             self.pos += 1; // skip closing ']'
-            return Ok(Value::Object(hm));
+            return Ok(Value::object(hm, Location(start_pos, self.pos)));
         }
 
         loop {
-            let Value::String(key) = self.parse_string()? else {
+            let Value { value: ValueKind::String(key),..} = self.parse_string()? else {
                 return Err(ParseError::syntax(self.pos));
             };
 
@@ -232,7 +307,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(Value::Object(hm))
+        Ok(Value::object(hm, Location(start_pos, self.pos)))
     }
 
     fn match_number_token(&self, c: &u8) -> bool {
@@ -259,8 +334,8 @@ mod tests {
     fn p(s: &str) {
         let res = parse_str(s);
         assert!(res.is_ok());
-        let res = res.unwrap();
-        println!("{:#?}", res);
+        let _res = res.unwrap();
+        //println!("{:#?}", _res);
     }
 
     #[test]
